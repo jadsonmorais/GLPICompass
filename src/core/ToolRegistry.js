@@ -3,9 +3,9 @@
  * Centraliza o carregamento dinâmico de ferramentas (Auto-Discovery).
  */
 
-const glpi = require("../tools/glpi");
-const dashboard = require("../tools/dashboard");
-const customQuery = require("../tools/customQuery");
+const glpi = require("../../tools/glpi");
+const dashboard = require("../../tools/dashboard");
+const customQuery = require("../../tools/customQuery");
 const { createLogger } = require("../../lib/log");
 
 const log = createLogger("registry");

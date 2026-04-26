@@ -10,7 +10,7 @@ const { createLogger } = require("../../lib/log");
 const WikiManager = require("../core/WikiManager");
 const ToolRegistry = require("../core/ToolRegistry");
 const Agent = require("../core/Agent");
-const glpi = require("../tools/glpi");
+const glpi = require("../../tools/glpi");
 
 const log = createLogger("cli");
 
