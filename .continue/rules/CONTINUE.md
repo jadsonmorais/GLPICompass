@@ -155,22 +155,6 @@ npm run test:glpi
 - Listagem básica de recursos
 - Verificação de conectividade
 
-**2. Inspeção Visual de Tags:**
-```bash
-node check-tags.js --ticket=12345
-```
-- Exibe tabela com tags vinculadas
-- Útil para debug de IDs de relação
-- Visualização hierárquica
-
-**3. Ciclo CRUD de Etiquetas:**
-```bash
-node test-tags-smoke.js
-```
-- Testa Adicionar/Remover etiquetas
-- Validação completa do workflow
-- Ambiente real de produção
-
 ## Regras de Ouro e Boas Práticas
 
 ### Node.js & CommonJS
@@ -377,8 +361,6 @@ SOLUÇÃO:
 
 ### Scripts Úteis
 ```bash
-# Debug de tags
-node check-tags.js --ticket=ID --verbose
 
 # Teste completo
 npm run test:full

@@ -38,6 +38,65 @@ async function request(path, { method = "GET", body, query } = {}) {
   return data;
 }
 
+/**
+ * Definições de habilidades (tools) para o Agente.
+ * Mapeia o JSON da API de ferramentas para as funções locais.
+ */
+const skillDefinitions = [
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "list_open_tickets",
+        description: "Lists open (not-closed) tickets from the GLPI backlog.",
+        parameters: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", description: "Max tickets to return. Default 20." },
+            order: { type: "string", enum: ["ASC", "DESC"] }
+          }
+        }
+      }
+    },
+    handler: (args) => listOpenTickets({ limit: args.limit, order: args.order })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "search_tickets",
+        description: "Busca chamados por palavra-chave em titulo e conteudo.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string" },
+            only_open: { type: "boolean" },
+            limit: { type: "integer" }
+          },
+          required: ["text"]
+        }
+      }
+    },
+    handler: (args) => searchTickets({ text: args.text, onlyOpen: args.only_open !== false, limit: args.limit })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "get_ticket",
+        description: "Fetches a single ticket by ID.",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "integer" } },
+          required: ["id"]
+        }
+      }
+    },
+    handler: (args) => getTicket(args.id)
+  },
+  // ... (Repetir o padrão para as outras 16 ferramentas: set_priority, add_followup, etc.) [1, 19, 20]
+];
+
 async function initSession() {
   if (!APP_TOKEN || !USER_TOKEN) {
     throw new Error("GLPI_APP_TOKEN and GLPI_USER_TOKEN must be set in .env");
