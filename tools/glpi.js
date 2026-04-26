@@ -8,7 +8,24 @@ const PRIORITY = { 1: "very_low", 2: "low", 3: "medium", 4: "high", 5: "very_hig
 const STATUS = { 1: "new", 2: "assigned", 3: "planned", 4: "pending", 5: "solved", 6: "closed" };
 const URGENCY = PRIORITY;
 const IMPACT = PRIORITY;
-
+const TICKET_DISPLAY = {
+  "forcedisplay[0]": "2",   // ID
+  "forcedisplay[1]": "1",   // Título
+  "forcedisplay[2]": "3",   // Prioridade
+  "forcedisplay[3]": "4",   // Requerente
+  "forcedisplay[4]": "5",   // Técnico
+  "forcedisplay[5]": "12",  // Status
+  "forcedisplay[6]": "15",  // Data de abertura
+  "forcedisplay[7]": "19",  // Última atualização
+  "forcedisplay[8]": "7",   // Categoria
+  "forcedisplay[9]": "8",   // Grupo técnico
+  "forcedisplay[10]": "83", // Localização (= hotel na Carmel)
+  "forcedisplay[11]": "6",  // Fornecedor
+};
+const SUPPLIER_DISPLAY = {
+  ...TICKET_DISPLAY,
+  "forcedisplay[12]": "76677", // Ticket Externo - Ticket ID
+};
 const log = require('../lib/log');
 
 let sessionToken = null;
@@ -72,24 +89,6 @@ async function killSession() {
   });
   sessionToken = null;
 }
-
-// Campos exibidos por padrão em todas as buscas. Inclui categoria (7),
-// grupo técnico (8), localização/hotel (83) e fornecedor (6) pra dashboards
-// poderem agrupar por essas dimensões sem segunda chamada.
-const TICKET_DISPLAY = {
-  "forcedisplay[0]": "2",   // ID
-  "forcedisplay[1]": "1",   // Título
-  "forcedisplay[2]": "3",   // Prioridade
-  "forcedisplay[3]": "4",   // Requerente
-  "forcedisplay[4]": "5",   // Técnico
-  "forcedisplay[5]": "12",  // Status
-  "forcedisplay[6]": "15",  // Data de abertura
-  "forcedisplay[7]": "19",  // Última atualização
-  "forcedisplay[8]": "7",   // Categoria
-  "forcedisplay[9]": "8",   // Grupo técnico
-  "forcedisplay[10]": "83", // Localização (= hotel na Carmel)
-  "forcedisplay[11]": "6",  // Fornecedor
-};
 
 async function listOpenTickets({ limit = 20, sortBy = "date_mod", order = "DESC" } = {}) {
   const sortField = sortBy === "date" ? "15" : "19";
@@ -200,14 +199,6 @@ async function getTicketSearchOptions() {
   return request("/listSearchOptions/Ticket");
 }
 
-// Inclui o campo 76677 (Ticket Externo - Ticket ID): chamado realmente
-// "pendente do fornecedor" tem esse ID populado. Sem ele, é só atribuição
-// administrativa — não tá de fato na fila do fornecedor.
-const SUPPLIER_DISPLAY = {
-  ...TICKET_DISPLAY,
-  "forcedisplay[12]": "76677", // Ticket Externo - Ticket ID
-};
-
 async function listTicketsBySupplier({
   supplierId,
   onlyOpen = true,
@@ -284,8 +275,6 @@ async function listTagsForTicket(ticketId) {
   return [];
 }
 
-// TODO(verificar): endpoint do plugin Tag (https://github.com/pluginsGLPI/tag).
-// Validar com `npm run test:glpi` em ambiente real antes de promover a estável.
 async function addTagToTicket(ticketId, tagId) {
   try {
     const payload = {
@@ -316,9 +305,6 @@ async function addTagToTicket(ticketId, tagId) {
   }
 }
 
-// TODO(verificar): endpoint do plugin Tag (https://github.com/pluginsGLPI/tag).
-// Estratégia: search da tabela de junção pra achar o id da linha, depois DELETE.
-// Fallback: DELETE direto com input — varia por versão do plugin.
 async function removeTagFromTicket(ticketId, tagId) {
   try {
     // 1. Pega a lista que já validamos que funciona
@@ -396,35 +382,6 @@ async function test() {
   console.log("\nSession closed. All good.");
 }
 
-module.exports = {
-  PRIORITY,
-  STATUS,
-  URGENCY,
-  IMPACT,
-  initSession,
-  killSession,
-  listOpenTickets,
-  searchTickets,
-  getTicket,
-  updateTicket,
-  setPriority,
-  setStatus,
-  assignToUser,
-  assignToGroup,
-  addFollowup,
-  solveTicket,
-  closeTicket,
-  listCategories,
-  listGroups,
-  getTicketSearchOptions,
-  listProblemTickets,
-  linkTicketToProblem,
-  listTicketsBySupplier,
-  listTicketsByTag,
-  addTagToTicket,
-  removeTagFromTicket,
-};
-
 if (require.main === module) {
   const cmd = process.argv[2];
   if (cmd === "test") {
@@ -438,10 +395,6 @@ if (require.main === module) {
   }
 }
 
-/**
- * Definições de habilidades (tools) para o Agente.
- * Mapeia o JSON da API de ferramentas para as funções locais.
- */
 const skillDefinitions = [
   {
     definition: {
@@ -667,31 +620,50 @@ const skillDefinitions = [
   }
 ];
 
-// No final do arquivo, atualize o export:
 module.exports = {
+  // Constantes e Configurações
+  PRIORITY,
+  STATUS,
+  URGENCY,
+  IMPACT,
   skillDefinitions,
+
+  // Sessão e Core
   initSession,
-  request, // 
-  listOpenTickets, 
-  searchTickets,   
-  listTicketsBySupplier, 
-  listTicketsByTag,
-  listTagsForTicket,
-  addTagToTicket,
-  removeTagFromTicket,
   killSession,
+  request,
+
+  // Leitura de Chamados
   listOpenTickets,
   searchTickets,
   getTicket,
+  getTicketSearchOptions,
+
+  // Escrita e Ações
   updateTicket,
   setPriority,
   setStatus,
   addFollowup,
   solveTicket,
+  closeTicket,
+
+  // Atribuição
+  assignToUser,
+  assignToGroup,
+
+  // Metadados e Listas Auxiliares
+  listCategories,
+  listGroups,
+
+  // Problemas
+  listProblemTickets,
+  linkTicketToProblem,
+
+  // Fornecedores e Etiquetas (Plugins)
   listTicketsBySupplier,
   listTicketsByTag,
+  listTagsForTicket,
   addTagToTicket,
-  linkTicketToProblem
+  removeTagFromTicket,
 };
-
 
