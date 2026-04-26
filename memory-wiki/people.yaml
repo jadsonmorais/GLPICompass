@@ -1,0 +1,59 @@
+# Time de TI da Carmel Hotéis. Jhonathas Marques desligado (removido).
+# papel: gerente | coordenador | tecnico
+# eh_admin: true = pode autorizar operações de escrita sem consulta superior
+
+team:
+  - nome: Sergio Uchoa
+    glpi_id: 270
+    email: sergio.uchoa@carmelhoteis.com.br
+    papel: gerente
+    atua_em: ["*"]
+    eh_admin: true
+
+  - nome: Jadson Morais
+    glpi_id: 157
+    email: jadson.morais@carmelhoteis.com.br
+    papel: coordenador
+    atua_em: [N2-Sistemas, Dados]
+    eh_admin: true
+
+  - nome: Icaro Almeida
+    glpi_id: 259
+    email: icaro.almeida@carmelhoteis.com.br
+    papel: coordenador
+    atua_em: [N2-Infra]
+    eh_admin: true
+
+  - nome: Kevin Almeida
+    glpi_id: 158
+    email: kevin.almeida@carmelhoteis.com.br
+    papel: tecnico
+    atua_em: [N2-Sistemas]
+    eh_admin: false
+
+  - nome: Jonatas Damasceno
+    glpi_id: 306
+    email: jonatas.damasceno
+    papel: tecnico
+    atua_em: [Dados]
+    eh_admin: false
+
+  - nome: Jefferson Cavalcante
+    glpi_id: 279
+    email: jefferson.cavalcante@carmelhoteis.com.br
+    papel: tecnico
+    atua_em: []                             # preencher quando decidir
+    eh_admin: false
+
+  - nome: Sergio Henrique
+    glpi_id: 302
+    email: sergio.henrique@carmelhoteis.com.br
+    papel: tecnico
+    atua_em: []
+    eh_admin: false
+
+vips:
+  # Ad-hoc por enquanto. Estrutura prevista (ver decisions.yaml):
+  # - por_grupo_glpi: <id>
+  # - por_email: <email>
+  []

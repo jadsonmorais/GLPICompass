@@ -1,0 +1,8 @@
+mcpServers:
+  - name: filesystem
+    type: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "C:/Users/jadso/compass-glpi"

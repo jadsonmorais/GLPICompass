@@ -1,0 +1,21 @@
+{
+  "name": "compass-glpi-agent",
+  "version": "1.0.0",
+  "description": "Compass-GLPI agent — manages GLPI ticket backlog via REST API + Ollama (OpenAI-compatible)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "cli": "node bot.js cli",
+    "test": "node --test",
+    "test:glpi": "node tools/glpi.js test"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "js-yaml": "^4.1.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^6.34.0"
+  },
+  "devDependencies": {
+    "yaml": "^2.8.3"
+  }
+}

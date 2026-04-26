@@ -1,0 +1,30 @@
+# Dependências
+node_modules/
+package-lock.json
+
+# Credenciais (GLPI tokens, Telegram token, chaves de API)
+.env
+.env.local
+.env.*.local
+
+# Memory Wiki — contém dados pessoais (nomes, IDs GLPI, decisões internas).
+# Se este repo for privado e você quiser versionar a wiki, comente a linha abaixo.
+memory-wiki/*.md
+
+# Logs e runtime
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Dashboards gerados pela IA (snapshot, nao versionar)
+dashboards/

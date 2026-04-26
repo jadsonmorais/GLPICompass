@@ -1,0 +1,37 @@
+<!-- Archetype: Time Series — linha temporal (chamados abertos por dia, idade do backlog, evolução SLA). -->
+<!-- Eixo X = data; eixo Y = quantidade ou métrica. Múltiplas séries permitidas (ex: abertos vs solucionados). -->
+
+<div class="card" style="background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);grid-column:span 12">
+  <div style="font-size:14px;font-weight:600;color:#1f2937;margin-bottom:12px">{{TITULO_PAINEL}}</div>
+  <div id="{{CHART_ID}}" style="width:100%;height:300px"></div>
+</div>
+
+<script>
+(function() {
+  const el = document.getElementById('{{CHART_ID}}');
+  const chart = echarts.init(el);
+  chart.setOption({
+    grid: { top: 32, right: 24, bottom: 32, left: 48 },
+    legend: { top: 0, textStyle: { color: '#1f2937' } },
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: {{X_DATES_JSON}}, // ex: ["01/04","02/04","03/04"]
+      axisLabel: { color: '#6b7280' }
+    },
+    yAxis: { type: 'value', axisLabel: { color: '#6b7280' } },
+    series: [
+      {
+        name: '{{SERIE_1_NOME}}',
+        type: 'line',
+        smooth: true,
+        data: {{SERIE_1_VALUES_JSON}},
+        itemStyle: { color: '#0b5394' },
+        areaStyle: { color: 'rgba(11,83,148,0.1)' }
+      }
+      // Repita o bloco acima pra adicionar mais séries; alterne cores da paleta neutra.
+    ]
+  });
+  window.addEventListener('resize', () => chart.resize());
+})();
+</script>

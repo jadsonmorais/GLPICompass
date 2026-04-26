@@ -1,0 +1,66 @@
+name: Compass-GLPI-Local
+version: 1.0.0
+schema: v1
+
+models:
+  # Modelo Principal para Chat e Edição (O Peso-Pesado)
+  - name: Qwen 2.5 Coder 14B
+    provider: ollama
+    model: qwen2.5-coder:14b
+    roles:
+      - chat
+      - edit
+    defaultCompletionOptions:
+      temperature: 0.3
+      maxTokens: 4096
+
+  # Modelo Leve para Autocomplete (Evita o travamento da IDE)
+  - name: Autocomplete-Leve
+    provider: ollama
+    model: qwen2.5-coder:14b
+    roles:
+      - autocomplete
+    autocompleteOptions:
+      debounceDelay: 250
+      maxPromptTokens: 512
+    defaultCompletionOptions:
+      temperature: 0.2
+      stop:
+        - "\n"
+
+rules:
+  - "Siga estritamente as definições em @CLAUDE.md"
+  - "Use sempre Node.js (>=18) e CommonJS (require/module.exports)"
+  - "NUNCA logue PII (conteúdo de mensagens ou tokens) de forma bruta"
+  - "Respostas em pt-BR, mas código/documentação de ferramentas em EN"
+
+prompts:
+  - name: implement
+    description: "Implementar tarefa usando @CLAUDE.md"
+    prompt: |
+      Aja como um Engenheiro Sênior focado em eficiência.
+      Analise o código selecionado e o contexto do @CLAUDE.md.
+      Tarefa: {{{ input }}}
+      
+      Regras:
+      - Respeite o padrão CommonJS (require).
+      - Use o logger em lib/log.js para erros.
+      - Retorne apenas o bloco de código modificado.
+
+  - name: init
+    description: "Gerar CONTINUE.md (Manual do Projeto)"
+    prompt: |
+      Você é um Arquiteto de Soluções. 
+      Com base no @CLAUDE.md, gere o conteúdo para um arquivo CONTINUE.md.
+      O guia deve cobrir a arquitetura de 6 camadas, o workflow de testes e as regras de PII.
+      Não tente criar o arquivo; apenas gere o Markdown aqui no chat.
+
+context:
+  - provider: file
+  - provider: code
+  - provider: diff
+  - provider: terminal
+  # Reative o 'codebase' apenas quando o bot parar de travar
+  # - provider: codebase 
+
+mcpServers: []

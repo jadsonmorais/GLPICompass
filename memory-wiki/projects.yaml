@@ -1,0 +1,29 @@
+# Iniciativas de ITSM em andamento. Problems abertos.
+
+iniciativas_ativas:
+  # - nome: ""
+  #   descricao: ""
+  #   status: "planejamento | em_curso | bloqueado | concluido"
+  #   donos: []
+  #   prazo_alvo: YYYY-MM-DD
+  - nome: "Dashboards HTML on-demand (BI via chat)"
+    descricao: "Substituir o PowerBI atual por dashboards HTML gerados sob demanda pela IA, consumindo a API do GLPI. MVP: snapshot estático (dados embutidos), guiado por skill em skills/dashboard/ + catálogo de archetypes (KPI cards, top-bar, time-series, heatmap, pivot-table). Tool generate_dashboard usa modelo separado via MODEL_DASHBOARD. Próximos passos: server-side proxy pra dados live, embed em intranet, autenticação."
+    status: "em_curso"
+    donos: ["Jadson"]
+    prazo_alvo: null
+
+problems_abertos:
+  - glpi_problem_id: 206
+    titulo: "Falhas no processamento de cupons e baixa de estoque"
+    categoria: "ERP / PDV"
+    hipotese_causa: "Incidente recorrente — múltiplos chamados de 'falha no processamento de cupons' e 'falha de baixa de estoque' costumam ter a mesma causa-raiz"
+    palavras_chave:
+      - "cupons"
+      - "baixa"
+      - "estoque"
+    impacto: "Alto — afeta controle de estoque e abastecimento, além de causar insatisfação dos clientes internos"
+    acao_esperada: "Vincular chamados que batem às palavras-chave ao Problem 206"
+
+fora_do_escopo:
+  # - "Frontend mobile do hotel (outro time)"
+  # - "Infra de câmeras/CFTV (fornecedor externo)"

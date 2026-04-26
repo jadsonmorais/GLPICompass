@@ -1,0 +1,22 @@
+# Quem é o usuário principal do agente.
+name: Jadson Morais
+email: jadson.morais@carmelhoteis.com.br
+glpi_user_id: 157
+cargo: Coordenador de Sistemas e Dados
+empresa: Carmel Hotéis
+idioma: pt-BR
+
+preferencias:
+  tom: direto
+  evitar:
+    - explicar_basico
+    - prose_redundante
+    - anglicismo_sem_necessidade
+  preferir:
+    - respostas_enxutas
+    - tabelas_para_listas
+    - confirmar_antes_de_escrever
+
+colegas_que_tambem_usam:
+  - Icaro Almeida       # coordenador de infra
+  - Sergio Uchoa        # gerente

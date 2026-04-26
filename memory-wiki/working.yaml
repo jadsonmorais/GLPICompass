@@ -1,0 +1,13 @@
+# Foco desta semana. Único arquivo que o agente pode atualizar (com permissão).
+
+ultima_atualizacao: 2026-04-24
+
+foco_atual: ""
+
+em_andamento: []
+
+aguardando: []
+
+rotinas_ativas: []            # preenchido quando scheduler entrar em outro plano
+
+notas_proxima_sessao: []

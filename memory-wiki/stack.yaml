@@ -1,0 +1,175 @@
+# Instância GLPI, grupos, canal de notificação.
+# Valores de GLPI_URL, tokens etc ficam em .env (não aqui).
+
+instancia:
+  empresa: Carmel Hotéis
+  url_base: "${GLPI_URL}"                   # lido do .env
+  endpoint_api: "${GLPI_URL}/apirest.php"
+  autenticacao: app_token + user_token
+  entidade: single                          # não usa multi-entity
+  versao_glpi: "10.x"                       # preencher com valor real
+
+grupo_departamento_ti:
+  id: 20
+  nome: Tecnologia Informacao
+
+grupos_atendimento:
+  - nome: N1
+    id: 37                                # preencher via list_groups
+    escopo: "primeira linha — chamados gerais, suporte de usuário"
+  - nome: N2-Infra
+    id: 38
+    escopo: "redes, servidores, VPN, telefonia, hardware"
+    coordenador: Icaro Almeida
+  - nome: N2-Sistemas
+    id: 36
+    escopo: "aplicações, sistemas web, integrações"
+    coordenador: Jadson Morais
+  - nome: Dados
+    id: 39
+    escopo: "BI, ETL, bancos de dados, relatórios"
+    coordenador: Jadson Morais
+
+fornecedores:
+  - nome: "CMFlex"
+    id: 1
+    servico: "ERP - Back"
+  - nome: "Oracle"
+    id: 2
+    servico: "ERP - Front"
+  - nome: "Simphony"
+    id: 3
+    servico: "ERP - PDV"
+  - nome: "Apice Outsourcing"
+    id: 4
+    servico: "Aluguel Impressora"
+  - nome: "RHID"
+    id: 6
+    servico: "Ponto Eletronico"
+  - nome: "Questor"
+    id: 8
+    servico: "ERP - Folha"
+  - nome: "Infraspeak"
+    id: 9
+    servico: "ERP - Manutenção"
+  - nome: "G4 Flex"
+    id: 10
+    servico: "Telefonia"
+  - nome: "Omnibees"
+    id: 11
+    servico: "Comercial - Serviços"
+  - nome: "Onity"
+    id: 12
+    servico: "Chaves Magneticas"
+  - nome: "KDTech - Demetrius"
+    id: 14
+    servico: "Telefonia"
+  - nome: "Safetec"
+    id: 16
+    servico: "Google"
+  - nome: "Verdanatech"
+    id: 17
+    servico: "Gestão TI - GLPI"
+  - nome: "Zoox"
+    id: 18
+    servico: "Internet"
+  - nome: "Review PRO"
+    id: 19
+    servico: "ERP - Front"
+  - nome: "Artech"
+    id: 20
+    servico: "Cameras"
+  - nome: "CHF"
+    id: 21
+    servico: "Ponto Eletronico"
+  - nome: "BLTour"
+    id: 22
+    servico: "Parceiros"
+  - nome: "Plusgrade"
+    id: 23
+    servico: "Comercial - Upseling"
+  - nome: "Asksuite Tecnologia Ltda"
+    id: 24
+    servico: "Comercial - Chatbot"
+  - nome: "Qualyteam"
+    id: 26
+    servico: "ERP - Qualidade"
+  - nome: "Prime"
+    id: 28
+    servico: "Geral"
+  - nome: "Impulse"
+    id: 31
+    servico: "Link de internet"
+  - nome: "Texnet"
+    id: 32
+    servico: "Link de internet"
+  - nome: "Notebook CE"
+    id: 33
+    servico: "Serviço Infraestrutura"
+  - nome: "Booking (Suporte)"
+    id: 34
+    servico: "Comercial - Upseling"
+  - nome: "Simple"
+    id: 35
+    servico: "Parceiros"
+  - nome: "Brasoftware"
+    id: 47
+    servico: "Power BI"
+  - nome: "Nonius"
+    id: 48
+    servico: "ERP - Front"
+  - nome: "Prefeitura de Caucaia"
+    id: 49
+    servico: "Serviço Infraestrutura"
+
+canais_notificacao:
+  - tipo: telegram
+    papel: "push proativo (escopo de plano futuro: digest, SLA em risco)"
+
+etiquetas:
+  - nome: "Aberta"
+    cor: "#45818e"
+    id: 203
+  - nome: "Aguardando Colaboração Interna"
+    cor: "#f1c232"
+    id: 211
+  - nome: "Aguardando Fornecedor"
+    cor: "#f1c232"
+    id: 205
+  - nome: "Aguardando Requerente"
+    cor: "#8e7cc3"
+    id: 206
+  - nome: "Backlog"
+    cor: "#2986cc"
+    id: 222
+  - nome: "Cancelada"
+    cor: "#cc0000"
+    id: 209
+  - nome: "Concluída"
+    cor: "#6aa84f"
+    id: 208
+  - nome: "Em Andamento"
+    cor: "#0b5394"
+    id: 210
+  - nome: "Em Homologação/Testes" 
+    cor: "#6d9eeb"
+    id: 207
+  - nome: "Em Planejamento"
+    cor: "#a64d79"
+    id: 217
+  - nome: "Solucionado"
+    cor: "#6aa84f"
+    id: 219
+
+consultas_personalizadas:
+  # Cada entrada expõe uma SQL pré-cadastrada no plugin utilsdashboards.
+  # O token real fica em .env (GLPI_QUERY_TOKEN_*) — aqui só a referência.
+  # Endpoint: ${GLPI_DASHBOARDS_BASE_URL}?token=<token>
+  - nome: "Chamados Aguardando Retorno"
+    descricao: "Última interação (followup ou task) de cada chamado em aberto foi feita por um usuário do TI (usercategories_id=20). A bola está com o solicitante/fornecedor. Cobre o cruzamento glpi_itilfollowups + glpi_tickettasks que /search/Ticket não faz."
+    colunas: ["id", "Ticket", "date", "users_id", "date_mod", "date_creation", "content", "tipo"]
+    token_env: "GLPI_QUERY_TOKEN_AGUARDANDO_RETORNO"
+
+convencoes:
+  idioma_padrao_respostas: pt-BR
+  fuso_horario: America/Fortaleza

@@ -1,0 +1,30 @@
+# Regras append-only de roteamento, VIP, SLA.
+# O agente segue essas regras sem re-discutir.
+
+regras_roteamento:
+  # Estrutura:
+  # - quando: "<palavra-chave ou categoria>"
+  #   entao: "<grupo alvo ou ação>"
+  #   motivo: "<por que essa regra existe>"
+  #   data: YYYY-MM-DD
+
+  - quando: "descrição menciona 'cupons' OU 'baixa' OU 'estoque'"
+    entao: "sugerir vinculação ao Problem 206 (ver projects.yaml)"
+    motivo: "Incidentes dessas duas categorias costumam ter a mesma causa-raiz"
+    data: 2026-04-24
+
+regras_vip:
+  # Estrutura:
+  # - criterio: "por_grupo_glpi|por_email|por_cargo"
+  #   valor: "<valor>"
+  #   urgencia_minima: <1-5>
+  #   data: YYYY-MM-DD
+  []
+
+decisoes_operacionais:
+  # Regras de comportamento acumuladas.
+  # - data: YYYY-MM-DD
+  #   decisao: "..."
+  #   motivo: "..."
+  #   contrapartida: "..."
+  []
