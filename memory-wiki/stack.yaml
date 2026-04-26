@@ -166,9 +166,14 @@ consultas_personalizadas:
   # O token real fica em .env (GLPI_QUERY_TOKEN_*) — aqui só a referência.
   # Endpoint: ${GLPI_DASHBOARDS_BASE_URL}?token=<token>
   - nome: "Chamados Aguardando Retorno"
-    descricao: "Última interação (followup ou task) de cada chamado em aberto foi feita por um usuário do TI (usercategories_id=20). A bola está com o solicitante/fornecedor. Cobre o cruzamento glpi_itilfollowups + glpi_tickettasks que /search/Ticket não faz."
+    descricao: "Última interação (followup ou task) de cada chamado em aberto foi feita por um REQUERENTE (!usercategories_id=20). A bola está com o TIME DA TI. Cobre o cruzamento glpi_itilfollowups + glpi_tickettasks que /search/Ticket não faz."
     colunas: ["id", "Ticket", "date", "users_id", "date_mod", "date_creation", "content", "tipo"]
     token_env: "GLPI_QUERY_TOKEN_AGUARDANDO_RETORNO"
+
+  - nome: "Linha do Tempo de Interações"
+    descricao: "Retorna todos os followups e tasks de chamados abertos para análise cronológica."
+    colunas: ["id", "Ticket", "date", "users_id", "content", "tipo"]
+    token_env: "GLPI_QUERY_TOKEN_ACOMPANHAMENTOS"
 
 convencoes:
   idioma_padrao_respostas: pt-BR

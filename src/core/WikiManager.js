@@ -8,7 +8,7 @@ const path = require("path");
 const yaml = require("js-yaml");
 const { createLogger } = require("../../lib/log");
 const glpi = require("../../tools/glpi");
-const log = createLogger("../../lib/log-wiki");
+const log = createLogger("../../lib/log-wiki  ");
 
 // Configurações extraídas do ambiente ou caminhos padrão [1]
 const WIKI_DIR = process.env.MEMORY_WIKI_DIR || path.join(__dirname, "../../memory-wiki");
