@@ -38,65 +38,6 @@ async function request(path, { method = "GET", body, query } = {}) {
   return data;
 }
 
-/**
- * Definições de habilidades (tools) para o Agente.
- * Mapeia o JSON da API de ferramentas para as funções locais.
- */
-const skillDefinitions = [
-  {
-    definition: {
-      type: "function",
-      function: {
-        name: "list_open_tickets",
-        description: "Lists open (not-closed) tickets from the GLPI backlog.",
-        parameters: {
-          type: "object",
-          properties: {
-            limit: { type: "integer", description: "Max tickets to return. Default 20." },
-            order: { type: "string", enum: ["ASC", "DESC"] }
-          }
-        }
-      }
-    },
-    handler: (args) => listOpenTickets({ limit: args.limit, order: args.order })
-  },
-  {
-    definition: {
-      type: "function",
-      function: {
-        name: "search_tickets",
-        description: "Busca chamados por palavra-chave em titulo e conteudo.",
-        parameters: {
-          type: "object",
-          properties: {
-            text: { type: "string" },
-            only_open: { type: "boolean" },
-            limit: { type: "integer" }
-          },
-          required: ["text"]
-        }
-      }
-    },
-    handler: (args) => searchTickets({ text: args.text, onlyOpen: args.only_open !== false, limit: args.limit })
-  },
-  {
-    definition: {
-      type: "function",
-      function: {
-        name: "get_ticket",
-        description: "Fetches a single ticket by ID.",
-        parameters: {
-          type: "object",
-          properties: { id: { type: "integer" } },
-          required: ["id"]
-        }
-      }
-    },
-    handler: (args) => getTicket(args.id)
-  },
-  // ... (Repetir o padrão para as outras 16 ferramentas: set_priority, add_followup, etc.) [1, 19, 20]
-];
-
 async function initSession() {
   if (!APP_TOKEN || !USER_TOKEN) {
     throw new Error("GLPI_APP_TOKEN and GLPI_USER_TOKEN must be set in .env");
@@ -497,14 +438,260 @@ if (require.main === module) {
   }
 }
 
+/**
+ * Definições de habilidades (tools) para o Agente.
+ * Mapeia o JSON da API de ferramentas para as funções locais.
+ */
+const skillDefinitions = [
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "list_open_tickets",
+        description: "Lists open (not-closed) tickets from the GLPI backlog.",
+        parameters: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", description: "Max tickets to return. Default 20." },
+            order: { type: "string", enum: ["ASC", "DESC"] }
+          }
+        }
+      }
+    },
+    handler: (args) => listOpenTickets({ limit: args.limit, order: args.order })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "search_tickets",
+        description: "Busca chamados por palavra-chave em titulo e conteudo.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "Palavra-chave ou frase curta a buscar em titulo e conteudo." },
+            only_open: { type: "boolean", description: "Se true (padrao), limita a chamados nao fechados." },
+            limit: { type: "integer", description: "Maximo de resultados. Padrao 20." }
+          },
+          required: ["text"]
+        }
+      }
+    },
+    handler: (args) => searchTickets({ text: args.text, onlyOpen: args.only_open !== false, limit: args.limit })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "get_ticket",
+        description: "Fetches a single ticket by ID with dropdown fields expanded.",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "integer", description: "GLPI ticket ID." } },
+          required: ["id"]
+        }
+      }
+    },
+    handler: (args) => getTicket(args.id)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "update_ticket",
+        description: "Updates arbitrary fields on a ticket. Prefer set_priority / set_status for common operations.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+            fields: { type: "object", description: "Map of GLPI field name to new value." }
+          },
+          required: ["id", "fields"]
+        }
+      }
+    },
+    handler: (args) => updateTicket(args.id, args.fields)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "set_priority",
+        description: "Sets priority (1-6) based on urgency × impact matrix.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+            priority: { type: "integer", minimum: 1, maximum: 6 }
+          },
+          required: ["id", "priority"]
+        }
+      }
+    },
+    handler: (args) => setPriority(args.id, args.priority)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "set_status",
+        description: "Sets status (1=new, 2=assigned, 3=planned, 4=pending, 5=solved, 6=closed).",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+            status: { type: "integer", minimum: 1, maximum: 6 }
+          },
+          required: ["id", "status"]
+        }
+      }
+    },
+    handler: (args) => setStatus(args.id, args.status)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "add_followup",
+        description: "Adds a follow-up (comment) to a ticket.",
+        parameters: {
+          type: "object",
+          properties: {
+            ticket_id: { type: "integer" },
+            content: { type: "string" },
+            is_private: { type: "boolean", description: "If true, only technicians see it." }
+          },
+          required: ["ticket_id", "content"]
+        }
+      }
+    },
+    handler: (args) => addFollowup(args.ticket_id, args.content, args.is_private)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "solve_ticket",
+        description: "Creates a Solution record and sets status to Solved.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+            solution: { type: "string", description: "Solution text." }
+          },
+          required: ["id", "solution"]
+        }
+      }
+    },
+    handler: (args) => solveTicket(args.id, args.solution)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "list_tickets_by_supplier",
+        description: "Lista chamados pendentes por fornecedor (exige ID externo).",
+        parameters: {
+          type: "object",
+          properties: {
+            supplier_id: { type: "integer", description: "ID GLPI do fornecedor." },
+            only_open: { type: "boolean" },
+            limit: { type: "integer" }
+          },
+          required: ["supplier_id"]
+        }
+      }
+    },
+    handler: (args) => listTicketsBySupplier({ 
+      supplierId: args.supplier_id, 
+      onlyOpen: args.only_open !== false, 
+      limit: args.limit 
+    })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "list_tickets_by_tag",
+        description: "Lista chamados que possuem uma etiqueta específica.",
+        parameters: {
+          type: "object",
+          properties: {
+            tag_id: { type: "integer", description: "ID GLPI da etiqueta." },
+            only_open: { type: "boolean" }
+          },
+          required: ["tag_id"]
+        }
+      }
+    },
+    handler: (args) => listTicketsByTag({ 
+      tagId: args.tag_id, 
+      onlyOpen: args.only_open !== false 
+    })
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "add_tag_to_ticket",
+        description: "Adiciona uma etiqueta ao chamado (Status interno da TI).",
+        parameters: {
+          type: "object",
+          properties: {
+            ticket_id: { type: "integer" },
+            tag_id: { type: "integer" }
+          },
+          required: ["ticket_id", "tag_id"]
+        }
+      }
+    },
+    handler: (args) => addTagToTicket(args.ticket_id, args.tag_id)
+  },
+  {
+    definition: {
+      type: "function",
+      function: {
+        name: "link_ticket_to_problem",
+        description: "Vincula um chamado a um Problem record.",
+        parameters: {
+          type: "object",
+          properties: {
+            ticket_id: { type: "integer" },
+            problem_id: { type: "integer" }
+          },
+          required: ["ticket_id", "problem_id"]
+        }
+      }
+    },
+    handler: (args) => linkTicketToProblem(args.ticket_id, args.problem_id)
+  }
+];
+
+// No final do arquivo, atualize o export:
 module.exports = {
+  skillDefinitions,
   initSession,
-  request, // Helper base
-  listOpenTickets, // <--- Faltava este
-  searchTickets,   // <--- Faltava este
-  listTicketsBySupplier, // <--- Faltava este
+  request, // 
+  listOpenTickets, 
+  searchTickets,   
+  listTicketsBySupplier, 
   listTicketsByTag,
   listTagsForTicket,
   addTagToTicket,
-  removeTagFromTicket
+  removeTagFromTicket,
+  killSession,
+  listOpenTickets,
+  searchTickets,
+  getTicket,
+  updateTicket,
+  setPriority,
+  setStatus,
+  addFollowup,
+  solveTicket,
+  listTicketsBySupplier,
+  listTicketsByTag,
+  addTagToTicket,
+  linkTicketToProblem
 };
+
+

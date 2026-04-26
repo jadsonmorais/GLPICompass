@@ -5,7 +5,7 @@
  */
 
 const { OpenAI } = require("openai");
-const { createLogger } = require("../lib/log");
+const { createLogger } = require("../../lib/log");
 
 const log = createLogger("agent");
 
