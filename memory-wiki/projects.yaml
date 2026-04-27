@@ -6,11 +6,6 @@ iniciativas_ativas:
   #   status: "planejamento | em_curso | bloqueado | concluido"
   #   donos: []
   #   prazo_alvo: YYYY-MM-DD
-  - nome: "Dashboards HTML on-demand (BI via chat)"
-    descricao: "Substituir o PowerBI atual por dashboards HTML gerados sob demanda pela IA, consumindo a API do GLPI. MVP: snapshot estático (dados embutidos), guiado por skill em skills/dashboard/ + catálogo de archetypes (KPI cards, top-bar, time-series, heatmap, pivot-table). Tool generate_dashboard usa modelo separado via MODEL_DASHBOARD. Próximos passos: server-side proxy pra dados live, embed em intranet, autenticação."
-    status: "em_curso"
-    donos: ["Jadson"]
-    prazo_alvo: null
 
 problems_abertos:
   - glpi_problem_id: 206

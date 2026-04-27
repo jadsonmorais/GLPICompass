@@ -4,7 +4,6 @@
  */
 
 const glpi = require("../../tools/glpi");
-const dashboard = require("../../tools/dashboard");
 const customQuery = require("../../tools/customQuery");
 const { createLogger } = require("../../lib/log");
 
@@ -22,7 +21,7 @@ class ToolRegistry {
    * No futuro, isso pode ser automatizado com fs.readdirSync.
    */
   _initialize() {
-    const modules = [glpi, dashboard, customQuery];
+    const modules = [glpi, customQuery];
 
     for (const module of modules) {
       if (module.skillDefinitions && Array.isArray(module.skillDefinitions)) {

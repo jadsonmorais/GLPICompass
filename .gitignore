@@ -26,5 +26,3 @@ Thumbs.db
 .idea/
 *.swp
 
-# Dashboards gerados pela IA (snapshot, nao versionar)
-dashboards/

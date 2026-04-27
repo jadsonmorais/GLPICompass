@@ -2,7 +2,7 @@
 
 ## Visão Geral do Projeto
 
-Este projeto implementa uma solução integrada com o GLPI para gestão de chamados, com foco em automação de processos, notificações via Telegram e geração de dashboards analíticos. A arquitetura foi desenhada em 6 camadas distintas, garantindo separação de responsabilidades e escalabilidade.
+Este projeto implementa uma solução integrada com o GLPI para gestão de chamados, com foco em automação de processos e notificações via Telegram. A arquitetura foi desenhada em 5 camadas distintas, garantindo separação de responsabilidades e escalabilidade.
 
 **Tecnologias Principais:**
 - Node.js (>=18) com CommonJS
@@ -109,27 +109,6 @@ const results = await utilsDashboards.executeQuery(queryName, params);
 **Casos de Uso:**
 - Extração de métricas personalizadas
 - Relatórios complexos não disponíveis via API REST
-- Dashboards analíticos avançados
-
-### Camada 6: Geração de Dashboards HTML On-demand
-
-**Responsabilidade:** Criação de visualizações analíticas standalone.
-
-**Interface:**
-```javascript
-const dashboard = await generate_dashboard(
-  "Título do Dashboard",
-  "Descrição detalhada",
-  { /* dados JSON */ }
-);
-
-// Retorna: { path: "/caminho/arquivo.html", url: "/rota/acesso" }
-```
-
-**Características:**
-- HTML standalone (sem dependências externas)
-- Responsivo e acessível
-- Pronto para compartilhamento
 
 ## Workflow de Testes
 
@@ -236,14 +215,12 @@ const tagId = Number(variableId);
 src/
 ├── tools/
 │   ├── glpi.js          # Wrapper GLPI REST
-│   ├── telegram.js      # Notificações Telegram
-│   └── dashboard.js     # Geração de dashboards
+│   └── telegram.js      # Notificações Telegram
 ├── utils/
 │   ├── logger.js        # Logging seguro (sem PII)
 │   ├── auth.js          # Autenticação
 │   └── helpers.js       # Funções auxiliares
 ├── memory-wiki/         # YAMLs de configuração
-├── templates/           # Templates de dashboard
 └── index.js            # Ponto de entrada
 ```
 
@@ -254,9 +231,6 @@ src/
 // Camel case para funções e variáveis
 const getTicketData = () => { ... }
 const userId = 123
-
-// Pascal case para classes/construtores
-class DashboardGenerator { ... }
 
 // Snake case para arquivos YAML
 memory-wiki/
@@ -307,9 +281,6 @@ git commit -m "feat: adiciona widget de métricas"
 # Teste de fumaça completo
 node test-tags-smoke.js
 
-# Validar dashboard
-node test-dashboard-smoke.js
-
 # Notificações
 node test-telegram-smoke.js
 ```
@@ -342,15 +313,6 @@ SOLUÇÃO:
 4. Testar com npm test
 ```
 
-### Issue: Dashboard HTML Não Gera
-```
-SOLUÇÃO:
-1. Verificar estrutura dos dados JSON
-2. Confirmar template disponível
-3. Chegar permissões de escrita
-4. Debug: console.log(JSON.stringify(data))
-```
-
 ## Recursos e Referências
 
 ### Documentação Oficial
@@ -367,9 +329,6 @@ npm run test:full
 
 # Monitoramento
 node monitor-tickets.js --interval=300
-
-# Dashboard rápido
-node quick-dashboard.js --type=tickets --format=html
 ```
 
 ### Arquivos de Configuração
