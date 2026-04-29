@@ -1,6 +1,7 @@
 /**
  * src/interfaces/telegram.js
  * Interface do Telegram para o Compass-GLPI.
+ * Suporta chats privados e grupos — em grupos, responde apenas quando mencionado (@botname).
  */
 
 const TelegramBot = require("node-telegram-bot-api");
@@ -19,8 +20,9 @@ async function runTelegram() {
     throw new Error("TELEGRAM_BOT_TOKEN não configurado no .env");
   }
 
-  // Inicializa o bot e o mapa de conversas (histórico por chatId)
   const bot = new TelegramBot(token, { polling: true });
+
+  // Histórico separado por usuário dentro de cada chat: "chatId:userId"
   const conversations = new Map();
 
   // 1. Carregamento do Contexto (Wiki + Persona)
@@ -29,61 +31,91 @@ async function runTelegram() {
   const memoryWiki = WikiManager.loadMemoryWiki();
   const systemPrompt = memoryWiki + "\n" + soulMd;
 
-  log.info("bot iniciado", { 
+  // Busca o @username do próprio bot para detectar menções em grupos
+  const me = await bot.getMe();
+  const botUsername = me.username;
+
+  log.info("bot iniciado", {
+    username: botUsername,
     model: process.env.MODEL || "llama3.2",
     wikiSize: memoryWiki.length,
-    toolsLoaded: ToolRegistry.getDefinitions().length
+    toolsLoaded: ToolRegistry.getDefinitions().length,
   });
 
   // 2. Handlers de Comandos
   bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "Olá! Sou o **Compass-GLPI**. Estou pronto para ajudar com a triagem e gestão do seu backlog no GLPI.", { parse_mode: "Markdown" });
+    const name = msg.from.first_name || "pessoal";
+    const isGroup = ["group", "supergroup"].includes(msg.chat.type);
+    const greeting = isGroup
+      ? `Olá, ${name}! Sou o **Compass-GLPI**. Em grupos, me mencione com @${botUsername} para que eu responda.`
+      : `Olá, ${name}! Sou o **Compass-GLPI**. Estou pronto para ajudar com a triagem e gestão do seu backlog no GLPI.`;
+    bot.sendMessage(msg.chat.id, greeting, { parse_mode: "Markdown" });
   });
 
   bot.onText(/\/id/, (msg) => {
-    bot.sendMessage(msg.chat.id, `Seu Chat ID: \`${msg.chat.id}\``, { parse_mode: "Markdown" });
+    bot.sendMessage(
+      msg.chat.id,
+      `Chat ID: \`${msg.chat.id}\`\nSeu User ID: \`${msg.from.id}\``,
+      { parse_mode: "Markdown" }
+    );
   });
 
   // 3. Listener Principal de Mensagens
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
-    const text = msg.text;
+    const userId = msg.from.id;
+    const isGroup = ["group", "supergroup"].includes(msg.chat.type);
+    let text = msg.text;
 
-    // Ignora comandos (já tratados) ou mensagens vazias
     if (!text || text.startsWith("/")) return;
 
-    // Recupera ou inicializa o histórico da conversa
-    if (!conversations.has(chatId)) {
-      conversations.set(chatId, []);
+    // Em grupos: só responde quando o bot é mencionado diretamente
+    if (isGroup) {
+      const mention = `@${botUsername}`;
+      if (!text.includes(mention)) return;
+      // Remove a menção do texto antes de enviar ao agente
+      text = text.replace(new RegExp(mention, "g"), "").trim();
+      if (!text) return;
     }
-    const history = conversations.get(chatId);
-    history.push({ role: "user", content: text });
 
-    // Mantém o histórico sob controle (conforme regra de 40 msgs do CLAUDE.md)
+    // Chave de histórico por usuário dentro do chat
+    const historyKey = `${chatId}:${userId}`;
+    if (!conversations.has(historyKey)) {
+      conversations.set(historyKey, []);
+    }
+    const history = conversations.get(historyKey);
+
+    // Injeta o nome do usuário no conteúdo para o agente poder citá-lo
+    const senderName = msg.from.first_name || msg.from.username || `Usuário ${userId}`;
+    history.push({ role: "user", content: `[${senderName}]: ${text}` });
+
     if (history.length > 40) history.splice(0, 2);
 
     try {
-      // Feedback visual de "digitando"
       await bot.sendChatAction(chatId, "typing");
 
-      // Instancia o Agente com o ToolRegistry para esta interação
       const agent = new Agent({
         systemPrompt,
         tools: ToolRegistry.getDefinitions(),
-        toolExecutor: (name, args) => ToolRegistry.execute(name, args)
+        toolExecutor: (name, args) => ToolRegistry.execute(name, args),
       });
 
       const reply = await agent.chat(history);
-      
-      // Envia a resposta final formatada em Markdown
-      await bot.sendMessage(chatId, reply, { parse_mode: "Markdown" });
+
+      // Em grupos, cita o usuário no início da resposta
+      const finalReply = isGroup
+        ? `*${senderName}*, ${reply}`
+        : reply;
+
+      await bot.sendMessage(chatId, finalReply, { parse_mode: "Markdown" });
     } catch (err) {
-      log.error("erro ao processar chat", { chatId, error: err.message });
-      await bot.sendMessage(chatId, "⚠️ Tive um problema interno ao processar sua mensagem. Por favor, tente novamente em instantes.");
+      log.error("erro ao processar chat", { chatId, userId, error: err.message });
+      await bot.sendMessage(
+        chatId,
+        "⚠️ Tive um problema interno ao processar sua mensagem. Por favor, tente novamente em instantes."
+      );
     }
   });
-  
-  // Nota: O agendador diário (Scheduler) será migrado na Task 3.1.
 }
 
 module.exports = { runTelegram };
