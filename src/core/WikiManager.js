@@ -1,32 +1,45 @@
 /**
  * src/core/WikiManager.js
- * Gerencia o carregamento e a renderização da Memory Wiki (YAML -> Markdown).
+ * Loads and renders Memory Wiki YAMLs.
+ *
+ * Architecture change: bulk Wiki data (team, tags, suppliers, etc.) is now
+ * exposed via on-demand tools in tools/wiki.js. WikiManager only provides
+ * getMinimalContext() — a small fixed string injected into the system prompt
+ * with instance-level facts that are always relevant.
+ *
+ * Individual section loaders (renderProfile, renderStack, …) are kept and
+ * exported so they can be tested independently and reused if needed.
  */
 
 const fs = require("fs");
 const path = require("path");
 const yaml = require("js-yaml");
 const { createLogger } = require("../../lib/log");
-const glpi = require("../../tools/glpi");
-const log = createLogger("../../lib/log-wiki  ");
 
-// Configurações extraídas do ambiente ou caminhos padrão [1]
+const log = createLogger("wiki");
+
 const WIKI_DIR = process.env.MEMORY_WIKI_DIR || path.join(__dirname, "../../memory-wiki");
-const WIKI_FILES = [
-  "profile.yaml",
-  "stack.yaml",
-  "projects.yaml",
-  "decisions.yaml",
-  "people.yaml",
-  "working.yaml",
-];
 
-// --- Helpers de renderização [2] ---
+// --- Helpers ---
 const isEmpty = (v) => v === undefined || v === null || (Array.isArray(v) && v.length === 0);
 const line = (label, value) => (isEmpty(value) ? null : `- **${label}:** ${value}`);
 const bullets = (arr) => (isEmpty(arr) ? " *(nenhum)* " : arr.map((x) => `- ${x}`).join("\n"));
 
-// --- Funções de Renderização Específicas [2-7] ---
+function loadYaml(filename) {
+  const full = path.join(WIKI_DIR, filename);
+  if (!fs.existsSync(full)) {
+    log.warn("arquivo não encontrado", { file: filename });
+    return null;
+  }
+  try {
+    return yaml.load(fs.readFileSync(full, "utf-8").trim()) || null;
+  } catch (err) {
+    log.error("falha no parse", { file: filename, error: err.message });
+    return null;
+  }
+}
+
+// --- Section renderers (kept for tests and potential reuse) ---
 
 function renderProfile(d) {
   if (isEmpty(d)) return "";
@@ -54,57 +67,29 @@ function renderStack(d) {
   const out = [];
   const inst = d.instancia || {};
   out.push("### Instância");
-  out.push([
-    line("Empresa", inst.empresa),
-    line("URL base", inst.url_base),
-    line("Endpoint API", inst.endpoint_api),
-    line("Autenticação", inst.autenticacao),
-    line("Entidade", inst.entidade),
-    line("Versão GLPI", inst.versao_glpi),
-  ].filter(Boolean).join("\n"));
-
-  if (d.grupo_departamento_ti) {
-    const g = d.grupo_departamento_ti;
-    out.push(`\n### Grupo do departamento de TI\n- ${g.nome} (id=${g.id})`);
-  }
-
-  if (!isEmpty(d.grupos_atendimento)) {
-    out.push("\n### Grupos de atendimento");
-    out.push("| Nome | ID | Coordenador | Escopo |");
-    out.push("|---|---|---|---|");
-    for (const g of d.grupos_atendimento) {
-      out.push(`| ${g.nome} | ${g.id ?? "_(a preencher)_"} | ${g.coordenador || "—"} | ${g.escopo || ""} |`);
-    }
-  }
-
-  if (!isEmpty(d.fornecedores)) {
-    out.push("\n### Fornecedores cadastrados");
-    out.push("| Nome | ID | Serviço |");
-    out.push("|---|---|---|");
-    for (const f of d.fornecedores) {
-      out.push(`| ${f.nome} | ${f.id} | ${f.servico || ""} |`);
-    }
-  }
-
-  if (!isEmpty(d.consultas_personalizadas)) {
-    out.push("\n### Consultas personalizadas (plugin utilsdashboards)");
-    out.push("Use a tool fetch_custom_query(name) SOMENTE quando o pedido casa com um destes nomes:");
-    out.push("| Nome | Descrição | Colunas retornadas |");
-    out.push("|---|---|---|");
-    for (const q of d.consultas_personalizadas) {
-      const cols = Array.isArray(q.colunas) ? q.colunas.join(", ") : "—";
-      out.push(`| ${q.nome} | ${q.descricao || ""} | ${cols} |`);
-    }
-  }
-
+  out.push(
+    [
+      line("Empresa", inst.empresa),
+      line("URL base", inst.url_base),
+      line("Endpoint API", inst.endpoint_api),
+      line("Autenticação", inst.autenticacao),
+      line("Entidade", inst.entidade),
+      line("Versão GLPI", inst.versao_glpi),
+    ]
+      .filter(Boolean)
+      .join("\n")
+  );
   if (d.convencoes) {
     out.push("\n### Convenções");
-    out.push([
-      line("Idioma padrão", d.convencoes.idioma_padrao_respostas),
-      line("Fuso horário", d.convencoes.fuso_horario),
-    ].filter(Boolean).join("\n"));
+    out.push(
+      [
+        line("Idioma padrão", d.convencoes.idioma_padrao_respostas),
+        line("Fuso horário", d.convencoes.fuso_horario),
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
   }
-
   return out.join("\n");
 }
 
@@ -116,7 +101,9 @@ function renderPeople(d) {
     out.push("|---|---|---|---|---|---|");
     for (const p of d.team) {
       const atua = isEmpty(p.atua_em) ? "—" : p.atua_em.join(", ");
-      out.push(`| ${p.nome} | ${p.glpi_id} | ${p.papel} | ${atua} | ${p.eh_admin ? "sim" : "não"} | ${p.email} |`);
+      out.push(
+        `| ${p.nome} | ${p.glpi_id} | ${p.papel} | ${atua} | ${p.eh_admin ? "sim" : "não"} | ${p.email} |`
+      );
     }
   }
   if (!isEmpty(d.vips)) {
@@ -135,10 +122,11 @@ function renderDecisions(d) {
     out.push(" *(nenhuma regra cadastrada)* ");
   } else {
     for (const r of d.regras_roteamento) {
-      out.push(`- **${r.quando}** → ${r.entao} _(${r.motivo || "sem motivo registrado"}, ${r.data || "sem data"})_`);
+      out.push(
+        `- **${r.quando}** → ${r.entao} _(${r.motivo || "sem motivo registrado"}, ${r.data || "sem data"})_`
+      );
     }
   }
-
   out.push("\n### Decisões operacionais (append-only)");
   if (isEmpty(d.decisoes_operacionais)) {
     out.push(" *(nenhuma decisão registrada)* ");
@@ -162,7 +150,6 @@ function renderProjects(d) {
       if (!isEmpty(i.donos)) out.push(`  - Donos: ${i.donos.join(", ")}`);
     }
   }
-
   out.push("\n### Problems em aberto");
   if (isEmpty(d.problems_abertos)) {
     out.push(" *(nenhum Problem aberto)* ");
@@ -184,63 +171,37 @@ function renderWorking(d) {
   return out.join("\n");
 }
 
-// --- Mapeamento de Renderizadores [8] ---
-const RENDERERS = {
-  "profile.yaml": renderProfile,
-  "stack.yaml": renderStack,
-  "projects.yaml": renderProjects,
-  "decisions.yaml": renderDecisions,
-  "people.yaml": renderPeople,
-  "working.yaml": renderWorking,
-};
-
 /**
- * Carrega e processa todos os arquivos YAML da wiki para compor o System Prompt. [8]
+ * Returns a compact string with only instance-level facts that are always
+ * relevant (company, base URL, timezone). Injected into every system prompt.
+ *
+ * All bulk data (team, tags, suppliers, groups, projects, rules) is fetched
+ * on demand via tools/wiki.js tools.
  */
-function loadMemoryWiki() {
-  if (!fs.existsSync(WIKI_DIR)) {
-    log.warn("diretório não encontrado", { path: WIKI_DIR });
-    return "";
-  }
+function getMinimalContext() {
+  const stack = loadYaml("stack.yaml");
+  if (!stack) return "";
 
-  const sections = [];
-  for (const name of WIKI_FILES) {
-    const full = path.join(WIKI_DIR, name);
-    if (!fs.existsSync(full)) continue;
+  const inst = stack.instancia || {};
+  const conv = stack.convencoes || {};
 
-    const raw = fs.readFileSync(full, "utf-8").trim();
-    if (!raw) continue;
+  const lines = [
+    "# Contexto da instância GLPI",
+    inst.empresa ? `- **Empresa:** ${inst.empresa}` : null,
+    inst.url_base ? `- **URL base:** ${inst.url_base}` : null,
+    inst.endpoint_api ? `- **API endpoint:** ${inst.endpoint_api}` : null,
+    conv.idioma_padrao_respostas ? `- **Idioma de resposta:** ${conv.idioma_padrao_respostas}` : null,
+    conv.fuso_horario ? `- **Fuso horário:** ${conv.fuso_horario}` : null,
+    "",
+    "Para consultar times, etiquetas, fornecedores, grupos, projetos ou regras, use as ferramentas disponíveis (get_team_members, get_glpi_tags, etc.).",
+  ].filter((l) => l !== null);
 
-    let data;
-    try {
-      data = yaml.load(raw);
-    } catch (err) {
-      log.error("falha no parse do arquivo", { file: name, error: err.message });
-      continue;
-    }
-
-    if (!data) continue;
-
-    const renderer = RENDERERS[name];
-    if (renderer) {
-      const title = name.replace(".yaml", "").toUpperCase();
-      const rendered = renderer(data);
-      sections.push(`## ${title}\n\n${rendered}`);
-    }
-  }
-
-  if (!sections.length) return "";
-
-  return [
-    "# Memory Wiki (fatos read-only sobre o contexto)",
-    ...sections,
-    "# Fim da Memory Wiki",
-    ""
-  ].join("\n\n");
+  return lines.join("\n");
 }
 
 module.exports = {
-  loadMemoryWiki,
+  getMinimalContext,
+  loadYaml,
   isEmpty,
   line,
   bullets,
@@ -249,5 +210,5 @@ module.exports = {
   renderPeople,
   renderDecisions,
   renderProjects,
-  renderWorking
+  renderWorking,
 };

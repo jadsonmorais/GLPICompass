@@ -1,54 +1,81 @@
-# CONTINUE.md - Guia de Desenvolvimento do Projeto
+# CONTINUE.md — Guia de Desenvolvimento do Projeto
+
+> **Regra de ouro:** Qualquer mudança arquitetural, de fluxo ou decisão técnica deve atualizar este arquivo no mesmo commit.
+
+---
 
 ## Visão Geral do Projeto
 
-Este projeto implementa uma solução integrada com o GLPI para gestão de chamados, com foco em automação de processos e notificações via Telegram. A arquitetura foi desenhada em 5 camadas distintas, garantindo separação de responsabilidades e escalabilidade.
+Solução integrada com o GLPI para gestão de chamados: automação de processos, triagem inteligente e notificações via Telegram.
 
 **Tecnologias Principais:**
 - Node.js (>=18) com CommonJS
-- OpenAI SDK (com suporte a Ollama e OpenAI Cloud)
+- LangChain JS (`langchain`, `@langchain/openai`) — orquestração do LLM
+- OpenAI SDK (interno ao LangChain) — suporte a Ollama, OpenAI Cloud e OpenRouter
 - GLPI REST API com plugins customizados
 - PostgreSQL via Plugin utilsdashboards
 - Telegram Bot API
 
-## Arquitetura de 6 Camadas
+---
 
-### Camada 1: System Prompt = Memory Wiki + SOUL.md
+## Arquitetura de Camadas
 
-**Responsabilidade:** Configuração inicial e definição da persona do agente.
+### Camada 1 — System Prompt (Contexto Mínimo + SOUL.md)
+
+**Responsabilidade:** Injetar apenas o contexto fixo sempre relevante no início de cada sessão.
+
+**Mudança arquitetural (v2.0):** O Memory Wiki completo **não é mais injetado** no system prompt.
+Apenas `WikiManager.getMinimalContext()` é usado — empresa, URL base, idioma e fuso horário.
 
 **Estrutura:**
 ```
 memory-wiki/
-├── profile.yaml       # Perfil do agente
-├── stack.yaml         # Stack técnica e consultas personalizadas
-├── projects.yaml      # Projetos ativos
-├── decisions.yaml     # Decisões arquiteturais
-├── people.yaml        # Contatos e stakeholders
+├── profile.yaml       # Perfil do agente (não injetado no prompt)
+├── stack.yaml         # Instância GLPI, grupos, etiquetas, fornecedores
+├── projects.yaml      # Projetos ativos e Problems abertos
+├── decisions.yaml     # Regras de roteamento e decisões operacionais
+├── people.yaml        # Time de TI e VIPs
 └── working.yaml       # Contexto de trabalho atual
 ```
 
-**Funcionamento:**
-- Na inicialização, o sistema lê os 6 arquivos YAML e os renderiza em markdown estruturado
-- Funções dedicadas (`renderProfile`, `renderStack`, etc.) processam cada arquivo
-- SOUL.md é injetado como system prompt em todas as chamadas de chat
-- **Manutenção:** Se novos campos forem adicionados ao YAML, os renderers correspondentes devem ser atualizados
+**Por que:** Injetar os 6 YAMLs completos a cada request custava ~1500–2000 tokens fixos, independente de relevância. Agora esse dado é buscado sob demanda via tools.
 
-### Camada 2: Loop de Tool Calling
+---
 
-**Responsabilidade:** Execução síncrona de comandos via ferramentas.
+### Camada 2 — LangChain Agent (`src/core/Agent.js`)
 
-**Configuração:**
-- OpenAI SDK configurado por padrão para Ollama
-- Suporte a OpenAI Cloud via variável `OPENAI_API_KEY`
-- `MAX_TOOL_ROUNDS = 8` (máximo de rodadas síncronas)
+**Responsabilidade:** Orquestrar o LLM com gerenciamento de histórico e token budget.
 
-**Fluxo:**
-1. Preserva a mensagem do assistant com `tool_calls` exatamente como emitido pelo modelo
-2. Em caso de erro: retorna `{error: "..."}` 
-3. Mensagens de erro são prefixadas com `ERROR:` no conteúdo de tool
+**Implementação:**
+- `ChatOpenAI` do `@langchain/openai` com `bindTools()` para tool calling
+- Provider switching via `AI_PROVIDER` env: `ollama` (default), `openai`, `openrouter`
+- Histórico tipado: `HumanMessage`, `AIMessage`, `ToolMessage` de `@langchain/core/messages`
+- O Agent **é dono do histórico** — `cli.js` passa apenas a string do usuário
 
-### Camada 3: Wrapper GLPI REST (`tools/glpi.js`)
+**Gerenciamento de contexto:**
+```javascript
+// Trimming automático quando tokens estimados excedem HISTORY_MAX_TOKENS (default: 4000)
+// Algoritmo: mantém metade mais recente + resume a metade mais antiga via LLM
+await agent._trimHistoryIfNeeded();
+```
+
+**Variáveis de ambiente relevantes:**
+| Var | Padrão | Descrição |
+|---|---|---|
+| `AI_PROVIDER` | `ollama` | `ollama` / `openai` / `openrouter` |
+| `MODEL` | `llama3.2` | Nome do modelo |
+| `HISTORY_MAX_TOKENS` | `4000` | Budget de tokens do histórico |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | URL do servidor Ollama |
+
+**Interface pública:**
+```javascript
+const reply = await agent.chat("mensagem do usuário"); // string → string
+agent.resetHistory(); // limpa histórico (ex: comando /reset na CLI)
+```
+
+---
+
+### Camada 3 — Wrapper GLPI REST (`tools/glpi.js`)
 
 **Responsabilidade:** Integração com o GLPI via REST API.
 
@@ -56,32 +83,45 @@ memory-wiki/
 - App-Token no header e query string (garante compatibilidade)
 - Session-Token cacheado e reutilizado
 
-**Plugin Tag (Etiquetas) - Regras Críticas:**
+**Plugin Tag (Etiquetas) — Regras Críticas:**
 ```javascript
 // ADIÇÃO: input DEVE ser um Array
-const result = await glpiPluginTag.add({
-  input: [{
-    items_id: 123,
-    itemtype: 'Ticket',
-    tag_id: 456
-  }]
-});
+await glpiPluginTag.add({ input: [{ items_id: 123, itemtype: 'Ticket', tag_id: 456 }] });
 
 // REMOÇÃO: Requer encontrar o id da relação primeiro
 const tags = await glpiPluginTag.listTagsForTicket(ticketId);
 const relationId = tags.find(t => t.tag_id === 456).id;
 await glpiPluginTag.delete(relationId);
 
-// BUSCA: Filtrar manualmente após listagem
+// BUSCA: Filtrar manualmente após listagem (GLPI ignora filtros items_id na URL)
 const tickets = await glpiTicket.list();
 const filtered = tickets.filter(t => t.items_id === specificId);
 ```
 
-**Limitações Conhecidas:**
-- GLPI ignora filtros `items_id` na URL em alguns endpoints
-- Sempre aplicar `.filter()` manual em JavaScript
+---
 
-### Camada 4: Scheduler Diário de Problem 206
+### Camada 4 — Memory Wiki como Tools (`tools/wiki.js`)
+
+**Responsabilidade:** Expor dados do Memory Wiki sob demanda como ferramentas do agente.
+
+**Motivação:** Elimina o custo fixo de tokens dos YAMLs no system prompt. O agente busca apenas o que é relevante para a conversa.
+
+**Catálogo de tools:**
+| Tool | Fonte YAML | Quando usar |
+|---|---|---|
+| `get_team_members()` | `people.yaml` | Identificar técnicos, papéis, IDs GLPI |
+| `get_glpi_tags()` | `stack.yaml` | Buscar IDs de etiquetas antes de taggear |
+| `get_suppliers()` | `stack.yaml` | Identificar fornecedores por nome/serviço |
+| `get_support_groups()` | `stack.yaml` | Rotear chamados aos grupos corretos |
+| `get_custom_queries_catalog()` | `stack.yaml` | Descobrir queries disponíveis antes de executar |
+| `get_active_projects()` | `projects.yaml` | Verificar Problems abertos (ex: Problem 206) |
+| `get_routing_rules()` | `decisions.yaml` | Seguir regras de roteamento e VIP |
+
+**Observação sobre RAG:** Para dados estruturados pequenos (YAMLs), tools são mais adequadas que RAG (sem infraestrutura extra, determinístico). RAG pode ser considerado no futuro para bases de conhecimento de texto livre (SOPs, manuais).
+
+---
+
+### Camada 5 — Scheduler Diário de Problem 206
 
 **Responsabilidade:** Monitoramento e notificação de chamados críticos.
 
@@ -91,205 +131,199 @@ const filtered = tickets.filter(t => t.items_id === specificId);
 
 **Workflow:**
 1. Varredura de chamados abertos
-2. Filtro por keywords no título/conteúdo (Problem 206 específico)
+2. Filtro por keywords no título/conteúdo (Problem 206)
 3. Envio de notificações formatadas via Telegram
 
-### Camada 5: Consultas Personalizadas (Plugin utilsdashboards)
+---
+
+### Camada 6 — Consultas Personalizadas (Plugin utilsdashboards)
 
 **Responsabilidade:** Execução de queries SQL arbitrárias.
 
-**Catálogo:** Definido em `memory-wiki/stack.yaml`
+**Catálogo:** Definido em `memory-wiki/stack.yaml` → acessível via tool `get_custom_queries_catalog()`.
 
-**Uso:**
 ```javascript
 const results = await utilsDashboards.executeQuery(queryName, params);
-// Retorna JSON estruturado
 ```
 
-**Casos de Uso:**
-- Extração de métricas personalizadas
-- Relatórios complexos não disponíveis via API REST
+---
+
+## Otimização de Tokens
+
+Medidas implementadas, em ordem de impacto:
+
+1. **Memory Wiki como Tools** — remove ~1500 tokens fixos do system prompt por request
+2. **Summarization do histórico** — `Agent._trimHistoryIfNeeded()` resume automaticamente quando `HISTORY_MAX_TOKENS` é excedido
+3. **Truncamento de respostas de tools** — `truncateToolResult(result, maxChars=2000)` em `lib/helpers.js` limita respostas longas da API GLPI antes de entrar no histórico
+4. **Budget configurável** — `HISTORY_MAX_TOKENS` ajustável via `.env`
+
+---
 
 ## Workflow de Testes
 
-### Testes Automatizados
+### Regra
 
-**Comando:**
+> **Toda função exportada em `src/` ou `tools/` deve ter pelo menos um teste em `test/*.test.js`.** Nenhuma PR sem testes.
+
+### Arquivos de teste
+
+| Arquivo | O que testa |
+|---|---|
+| `test/schema.test.js` | ToolRegistry — schema OpenAI e auto-discovery |
+| `test/wiki.test.js` | `tools/wiki.js` — todos os getters, estrutura dos YAMLs |
+| `test/wikiManager.test.js` | `WikiManager` — renderers, helpers, `getMinimalContext()` |
+| `test/agent.test.js` | `Agent` — chat, tool loop, trimming, reset (mock LLM) |
+| `test/helpers.test.js` | `truncateToolResult` — todos os casos |
+
+### Comandos
+
 ```bash
+# Todos os testes
 npm test
-```
 
-**Características:**
-- Utiliza Node.js native test runner
-- Foco em lógica pura e mocks
-- Executa testes unitários e de integração
+# Com cobertura
+npm run test:coverage
 
-### Scripts de Fumaça (Integração Direta)
-
-**1. Validação GLPI:**
-```bash
+# Smoke test GLPI (requer .env configurado)
 npm run test:glpi
 ```
-- Valida sessão ativa
-- Listagem básica de recursos
-- Verificação de conectividade
+
+### Framework
+
+Node.js native test runner (`node:test`) — sem Jest ou Vitest.
+
+---
 
 ## Regras de Ouro e Boas Práticas
 
 ### Node.js & CommonJS
 
-**Obrigatório:**
 - Node.js >= 18
-- Sintaxe CommonJS (require/module.exports)
+- Sintaxe CommonJS (`require`/`module.exports`)
 - **NÃO usar** `"type": "module"` no package.json
 
-**Exemplo:**
-```javascript
-// Correto
-const glpi = require('./tools/glpi');
-module.exports = { processTicket };
+### LangChain — Padrões de Uso
 
-// Incorreto - EVITAR
-import glpi from './tools/glpi';  // ❌
+```javascript
+// Provider switching via factory buildLLM() em Agent.js
+// NÃO instanciar ChatOpenAI diretamente fora de Agent.js
+
+// Mensagens tipadas — usar sempre no histórico
+const { HumanMessage, AIMessage, ToolMessage, SystemMessage } = require("@langchain/core/messages");
+
+// args de tool_calls já vêm parseados (não é JSON string)
+// LangChain: toolCall.args (objeto)
+// OpenAI SDK raw: toolCall.function.arguments (string JSON)
 ```
 
-### Helper request
+### Helper request (GLPI)
 
 **Regra:** Sempre passar body como objeto literal.
-
-**Correto:**
 ```javascript
-await request({
-  endpoint: '/Ticket',
-  method: 'POST',
-  body: { input: [{ name: 'Teste' }] } // ✅ Objeto literal
-});
-```
+// ✅ Correto
+await request({ endpoint: '/Ticket', method: 'POST', body: { input: [{ name: 'Teste' }] } });
 
-**Incorreto - ERRO:**
-```javascript
-await request({
-  endpoint: '/Ticket',
-  method: 'POST',
-  body: JSON.stringify({ input: [...] }) // ❌ Double stringification!
-});
+// ❌ Erro — double stringification
+await request({ endpoint: '/Ticket', method: 'POST', body: JSON.stringify({ input: [...] }) });
 ```
 
 ### Tipagem de IDs
 
-**Regra:** Sempre converter IDs para números explícitos.
-
 ```javascript
 const ticketId = parseInt(process.env.TICKET_ID, 10);
 const tagId = Number(variableId);
-
-// Necessário porque:
-// - GLPI espera números
-// - Variáveis de ambiente são strings
-// - Comparação string/number falha
+// GLPI espera números; variáveis de ambiente são strings
 ```
 
 ### PII (Informações Pessoalmente Identificáveis)
 
-**REGRAS CRÍTICAS:**
 1. **NUNCA** logar tokens de forma bruta
 2. **NUNCA** expor conteúdo de mensagens sensíveis
-3. **SEMPRE** mascarar dados sensíveis:
-   ```javascript
-   console.log('Token:', mask(token)); // ✅
-   console.log('Token:', token);        // ❌
-   ```
+3. **SEMPRE** mascarar dados sensíveis: `console.log('Token:', mask(token))`
 4. **SEMPRE** usar variáveis de ambiente para credenciais
-5. **NUNCA** commit arquivos .env ou .env.local
+5. **NUNCA** commitar arquivos `.env` ou `.env.local`
 
 ### Idioma e Documentação
 
-**Respostas:** pt-BR (Portuguese Brazil)
-**Código e Documentação:** EN (English)
+- **Respostas:** pt-BR
+- **Código e Documentação:** EN
+- **CONTINUE.md:** pt-BR
 
-## Padrões de Desenvolvimento
+---
 
-### Estrutura de Código
+## Estrutura de Arquivos
 
 ```
 src/
-├── tools/
-│   ├── glpi.js          # Wrapper GLPI REST
-│   └── telegram.js      # Notificações Telegram
-├── utils/
-│   ├── logger.js        # Logging seguro (sem PII)
-│   ├── auth.js          # Autenticação
-│   └── helpers.js       # Funções auxiliares
-├── memory-wiki/         # YAMLs de configuração
-└── index.js            # Ponto de entrada
+├── core/
+│   ├── Agent.js          # LangChain agent (histórico + tool loop)
+│   ├── WikiManager.js    # YAML loaders, renderers, getMinimalContext()
+│   └── ToolRegistry.js   # Auto-discovery de tools
+└── interfaces/
+    └── cli.js            # REPL — passa input para agent.chat()
+
+tools/
+├── glpi.js               # Wrapper GLPI REST
+├── customQuery.js        # Plugin utilsdashboards
+└── wiki.js               # Memory Wiki como tools sob demanda
+
+lib/
+├── log.js                # Logger seguro (sem PII)
+└── helpers.js            # truncateToolResult()
+
+test/
+├── schema.test.js        # ToolRegistry schema
+├── wiki.test.js          # tools/wiki.js
+├── wikiManager.test.js   # WikiManager renderers
+├── agent.test.js         # Agent chat loop (mock LLM)
+└── helpers.test.js       # truncateToolResult
+
+memory-wiki/              # YAMLs — fonte de verdade (não injetados no prompt)
+SOUL.md                   # Persona do agente (injetada no system prompt)
 ```
 
-### Convenções de Nomenclatura
-
-**Funções/Variáveis:**
-```javascript
-// Camel case para funções e variáveis
-const getTicketData = () => { ... }
-const userId = 123
-
-// Snake case para arquivos YAML
-memory-wiki/
-  profile.yaml
-  stack.yaml
-```
-
-**Constantes:**
-```javascript
-const MAX_TOOL_ROUNDS = 8
-const TELEGRAM_OWNER_CHAT_ID = process.env.OWNER_CHAT
-```
+---
 
 ## Workflow de Desenvolvimento
 
 ### 1. Inicialização do Ambiente
 
 ```bash
-# Instalar dependências
 npm install
-
-# Configurar variáveis de ambiente
 cp .env.example .env
-# Edite .env com suas credenciais
-
+# Editar .env com credenciais
 ```
 
-### 2. Desenvolvimento de Features
+### 2. Feature Flow
 
 ```bash
-# Criar branch
 git checkout -b feature/minha-feature
 
-# Desenvolver (seguir padrões)
-# Escrever/atualizar testes
+# Desenvolver
+# Escrever teste ANTES ou JUNTO com a função
 
-# Validar localmente
-npm test
-npm run test:glpi
+npm test                # deve passar antes do commit
+npm run test:glpi       # se tocou em glpi.js
 
-# Commitar
-git commit -m "feat: adiciona widget de métricas"
+git commit -m "feat: descrição"
 ```
 
-### 3. Testes de Integração
+### 3. Regra de Documentação
 
-```bash
-# Teste de fumaça completo
-node test-tags-smoke.js
+Toda mudança que altere:
+- Fluxo de mensagens / histórico
+- Adição ou remoção de tools
+- Variáveis de ambiente
+- Decisões arquiteturais
 
-# Notificações
-node test-telegram-smoke.js
-```
+**deve atualizar este arquivo no mesmo commit.**
+
+---
 
 ## Solução de Problemas
 
 ### Issue: Autenticação GLPI Falha
 ```
-SOLUÇÃO:
 1. Verificar APP_TOKEN em .env
 2. Confirmar permissões do token no GLPI
 3. Limpar cache de sessão
@@ -298,67 +332,32 @@ SOLUÇÃO:
 
 ### Issue: Tags Não São Removidas
 ```
-SOLUÇÃO:
-1. Entender que GLPI não deleta por tagId
-3. Aplicar DELETE no relationId, não na tagId
-4. Verificar permissões de usuário
+1. GLPI não deleta por tagId — requer o relationId
+2. Listar tags do ticket, extrair .id da relação
+3. Aplicar DELETE no relationId
 ```
 
 ### Issue: Double Stringification Error
 ```
-SOLUÇÃO:
-1. Procurar por JSON.stringify no body
-2. Remover JSON.stringify - passar objeto literal
+1. Localizar JSON.stringify no body da request
+2. Remover — passar objeto literal diretamente
 3. O helper request faz o stringify internamente
-4. Testar com npm test
 ```
 
-## Recursos e Referências
-
-### Documentação Oficial
-- [GLPI REST API](https://docs.glpi-project.org/)
-- [Plugin Tag Documentation](docs/glpi-tag-plugin.md)
-- [OpenAI SDK for Node.js](https://platform.openai.com/docs/api-reference)
-- [Telegram Bot API](https://core.telegram.org/bots/api)
-
-### Scripts Úteis
-```bash
-
-# Teste completo
-npm run test:full
-
-# Monitoramento
-node monitor-tickets.js --interval=300
+### Issue: Histórico Crescendo Demais
 ```
-
-### Arquivos de Configuração
-- `.env.example` - Template de variáveis
-- `memory-wiki/` - Configurações YAML
-- `@CLAUDE.md` - Regras do agente
-- `CONTINUE.md` - Este guia
-
-### Ambiente de Teste
-Use sempre ambiente de desenvolvimento para testes:
-```bash
-# Setar variável de ambiente
-export NODE_ENV=development
-export GLPI_URL=https://glpi.dev.local
+1. Reduzir HISTORY_MAX_TOKENS em .env
+2. Usar /reset na CLI para limpar sessão
+3. Verificar se tool results muito grandes — truncateToolResult(result, maxChars)
 ```
-
-## Contribuição e Revisão
-
-### Pull Requests
-1. Atualizar/criar testes para novas features
-2. Documentar mudanças em memory-wiki/
-3. Seguir padrões de código estabelecidos
-4. Executar testes locais antes do commit
-5. Incluir descrição de mudanças em pt-BR
-
-### Code Review
-- Foco em: segurança (PII), performance, legibilidade
-- Validar: padrões de GLPI, formatação de IDs
-- Aprovar: somente após testes passarem
 
 ---
 
-**IMPORTANTE:** Este guia reflete as arquitetura e workflows estabelecidos no @CLAUDE.md. Qualquer desvio deve ser documentado e aprovado pela equipe de arquitetura.
+## Referências
+
+- [GLPI REST API](https://docs.glpi-project.org/)
+- [LangChain JS](https://js.langchain.com/docs/)
+- [@langchain/openai](https://js.langchain.com/docs/integrations/chat/openai)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+- `memory-wiki/` — fonte de verdade dos dados contextuais
+- `SOUL.md` — persona e instruções do agente

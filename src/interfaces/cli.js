@@ -1,6 +1,6 @@
 /**
  * src/interfaces/cli.js
- * Interface de Linha de Comando (REPL) para o Compass-GLPI.
+ * REPL interface. History is owned by Agent; cli just passes user input strings.
  */
 
 const readline = require("readline");
@@ -15,36 +15,30 @@ const glpi = require("../../tools/glpi");
 const log = createLogger("cli");
 
 async function runCli() {
-  // 1. Carregamento de Contexto
   const soulPath = process.env.SOUL_FILE || path.join(__dirname, "../../SOUL.md");
   const soulMd = fs.readFileSync(path.resolve(soulPath), "utf-8");
-  const memoryWiki = WikiManager.loadMemoryWiki();
-  const systemPrompt = memoryWiki + "\n" + soulMd;
 
-  // 2. Inicialização do Agente
+  // Minimal context from Wiki (just instance info — bulk data is now in tools)
+  const minimalContext = WikiManager.getMinimalContext();
+  const systemPrompt = minimalContext + "\n" + soulMd;
+
   const agent = new Agent({
     systemPrompt,
     tools: ToolRegistry.getDefinitions(),
-    toolExecutor: (name, args) => ToolRegistry.execute(name, args)
+    toolExecutor: (name, args) => ToolRegistry.execute(name, args),
   });
 
-  // 3. Configuração do Readline
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  const history = [];
-  const model = process.env.MODEL || "llama3.2";
   const agentName = process.env.AGENT_NAME || "Compass-GLPI";
+  const model = process.env.MODEL || "llama3.2";
 
   console.log(`\n=== ${agentName} CLI ===`);
   console.log(`Model: ${model}`);
-  console.log(`Wiki: ${memoryWiki.length} chars`);
+  console.log(`System prompt: ${systemPrompt.length} chars`);
   console.log(`Tools: ${ToolRegistry.getDefinitions().length} carregadas`);
-  console.log("Digite 'exit' para sair.\n");
+  console.log("Comandos: 'exit' para sair, '/reset' para limpar histórico.\n");
 
-  // 4. Loop de Prompt (REPL)
   const promptUser = () => {
     rl.question("> ", async (input) => {
       const line = input.trim();
@@ -56,18 +50,23 @@ async function runCli() {
         return;
       }
 
+      if (line === "/reset") {
+        agent.resetHistory();
+        console.log("\nHistórico limpo.\n");
+        promptUser();
+        return;
+      }
+
       if (!line) {
         promptUser();
         return;
       }
 
-      history.push({ role: "user", content: line });
-
       try {
-        const reply = await agent.chat(history);
+        const reply = await agent.chat(line);
         console.log(`\n${reply}\n`);
       } catch (err) {
-        log.error("erro no processamento da mensagem", { error: err.message });
+        log.error("erro no processamento", { error: err.message });
         console.error(`\nErro: ${err.message}\n`);
       }
 

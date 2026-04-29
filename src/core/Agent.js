@@ -1,100 +1,160 @@
 /**
  * src/core/Agent.js
- * Orquestra a comunicação com o LLM e o loop de execução de ferramentas.
+ * LangChain-based agent: ChatOpenAI + typed message history + token-aware trimming.
  */
 
-const { OpenAI } = require("openai");
+const { ChatOpenAI } = require("@langchain/openai");
+const { HumanMessage, SystemMessage, AIMessage, ToolMessage } = require("@langchain/core/messages");
 const { createLogger } = require("../../lib/log");
+const { truncateToolResult } = require("../../lib/helpers");
 
 const log = createLogger("agent");
+
+const MAX_TOOL_ROUNDS = 8;
+// 1 token ≈ 4 chars — used for approximate history budget
+const CHARS_PER_TOKEN = 4;
+
+function buildLLM(modelName) {
+  const provider = process.env.AI_PROVIDER || "ollama";
+
+  if (provider === "openrouter") {
+    return new ChatOpenAI({
+      modelName,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      configuration: {
+        baseURL: "https://openrouter.ai/api/v1",
+        defaultHeaders: {
+          "HTTP-Referer": "https://github.com/jadsonmorais/compass-glpi",
+          "X-Title": "Compass-GLPI",
+        },
+      },
+    });
+  }
+
+  if (provider === "openai") {
+    return new ChatOpenAI({ modelName, apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  // Default: Ollama via OpenAI-compatible endpoint
+  return new ChatOpenAI({
+    modelName,
+    apiKey: "ollama",
+    configuration: { baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1" },
+  });
+}
+
+function estimateTokens(messages) {
+  return messages.reduce((sum, m) => {
+    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+    return sum + Math.ceil(content.length / CHARS_PER_TOKEN);
+  }, 0);
+}
 
 class Agent {
   /**
    * @param {Object} config
-   * @param {string} config.systemPrompt - O prompt consolidado (Wiki + SOUL.md).
-   * @param {Array} config.tools - Definições das ferramentas para a API.
-   * @param {Function} config.toolExecutor - Função Registry.execute(name, args).
+   * @param {string} config.systemPrompt - Prompt consolidado (minimal context + SOUL.md).
+   * @param {Array}  config.tools        - OpenAI function definitions para bindTools().
+   * @param {Function} config.toolExecutor - Registry.execute(name, args).
    */
   constructor({ systemPrompt, tools, toolExecutor }) {
     this.systemPrompt = systemPrompt;
-    this.tools = tools;
     this.toolExecutor = toolExecutor;
+    this.maxHistoryTokens = parseInt(process.env.HISTORY_MAX_TOKENS || "4000", 10);
 
-    const provider = process.env.AI_PROVIDER || "ollama";
-    const aiConfig = {};
+    const modelName = process.env.MODEL || "llama3.2";
+    const base = buildLLM(modelName);
+    this.llm = tools.length > 0 ? base.bindTools(tools) : base;
+    this.summaryLlm = buildLLM(modelName); // unbound — used for summarization only
 
-    // Configuração de Provedores
-    if (provider === "openrouter") {
-      aiConfig.baseURL = "https://openrouter.ai/api/v1";
-      aiConfig.apiKey = process.env.OPENROUTER_API_KEY;
-      aiConfig.defaultHeaders = {
-        "HTTP-Referer": "https://github.com/jadsonmorais/compass-glpi",
-        "X-Title": "Compass-GLPI",
-      };
-    } else if (provider === "openai") {
-      aiConfig.apiKey = process.env.OPENAI_API_KEY;
-    } else {
-      // Padrão: Ollama
-      aiConfig.baseURL = process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1";
-      aiConfig.apiKey = "ollama";
-    }
+    // Typed message history — owned by the Agent
+    this.history = [];
+    this.model = modelName;
+  }
 
-    this.client = new OpenAI(aiConfig);
-    this.model = process.env.MODEL || "llama3.2";
+  /** Clears conversation history (e.g. on /reset command). */
+  resetHistory() {
+    this.history = [];
+    log.info("histórico resetado");
   }
 
   /**
-   * Processa uma conversa, lidando com o loop de ferramentas de forma síncrona.
-   * @param {Array} history - Histórico de mensagens da conversa.
+   * Summarizes old messages into a single SystemMessage to keep history under budget.
+   * @private
    */
-  async chat(history) {
-    const MAX_TOOL_ROUNDS = 8; // Conforme definido na arquitetura [1]
+  async _summarize(messages) {
+    log.info("resumindo histórico", { messages: messages.length });
+    const response = await this.summaryLlm.invoke([
+      new SystemMessage(
+        "Faça um resumo conciso em português da conversa a seguir, preservando fatos, decisões e contexto importantes:"
+      ),
+      ...messages,
+    ]);
+    return new SystemMessage(`[Contexto anterior resumido: ${response.content}]`);
+  }
+
+  /**
+   * Trims history when estimated token count exceeds maxHistoryTokens.
+   * Keeps the most recent messages intact and summarizes the rest.
+   * @private
+   */
+  async _trimHistoryIfNeeded() {
+    const tokens = estimateTokens(this.history);
+    if (tokens <= this.maxHistoryTokens) return;
+
+    log.info("histórico muito longo, resumindo", { estimatedTokens: tokens, limit: this.maxHistoryTokens });
+
+    const halfIdx = Math.floor(this.history.length / 2);
+    const toSummarize = this.history.slice(0, halfIdx);
+    const toKeep = this.history.slice(halfIdx);
+
+    const summary = await this._summarize(toSummarize);
+    this.history = [summary, ...toKeep];
+    log.info("histórico trimado", { newLength: this.history.length });
+  }
+
+  /**
+   * Sends a user message and returns the assistant reply.
+   * History is managed internally; caller only provides the raw user text.
+   *
+   * @param {string} userInput
+   * @returns {Promise<string>}
+   */
+  async chat(userInput) {
+    this.history.push(new HumanMessage(userInput));
+    await this._trimHistoryIfNeeded();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      log.info("iniciando turno de chat", { round, model: this.model });
+      log.info("turno de chat", { round, model: this.model });
 
-      const response = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: "system", content: this.systemPrompt }, ...history],
-        tools: this.tools.length > 0 ? this.tools : undefined,
-        tool_choice: this.tools.length > 0 ? "auto" : undefined,
-      });
+      const messages = [new SystemMessage(this.systemPrompt), ...this.history];
+      const response = await this.llm.invoke(messages);
 
-      // CORREÇÃO: Acessa choices.message com segurança
-      const message = response.choices?.[0]?.message;
-      if (!message) throw new Error("Resposta inválida da IA: 'choices' vazio.");
+      const toolCalls = response.tool_calls;
 
-      const toolCalls = message.tool_calls;
-
-      // Se não houver chamadas de ferramentas, retorna o conteúdo final
       if (!toolCalls || toolCalls.length === 0) {
-        if (!message.content) throw new Error("Resposta vazia da IA.");
-        return message.content;
+        if (!response.content) throw new Error("Resposta vazia da IA.");
+        this.history.push(response);
+        return response.content;
       }
 
-      // REGRA DE OURO: Preserva a mensagem do assistente com tool_calls no histórico [1]
-      history.push(message);
-
+      this.history.push(response);
       log.info("executando ferramentas", { count: toolCalls.length });
 
       for (const toolCall of toolCalls) {
-        const name = toolCall.function.name;
-        const args = JSON.parse(toolCall.function.arguments);
-
+        // LangChain already parses args — no JSON.parse needed
+        const { name, args, id } = toolCall;
         try {
-          const result = await this.toolExecutor(name, args);
-          history.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result),
-          });
+          const rawResult = await this.toolExecutor(name, args);
+          const result = truncateToolResult(rawResult);
+          this.history.push(
+            new ToolMessage({ content: JSON.stringify(result), tool_call_id: id })
+          );
         } catch (err) {
-          log.error("erro na execução da ferramenta", { tool: name, error: err.message });
-          history.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ error: err.message }),
-          });
+          log.error("erro na ferramenta", { tool: name, error: err.message });
+          this.history.push(
+            new ToolMessage({ content: JSON.stringify({ error: err.message }), tool_call_id: id })
+          );
         }
       }
     }
