@@ -2,6 +2,8 @@
  * src/interfaces/telegram.js
  * Interface do Telegram para o Compass-GLPI.
  * Suporta chats privados e grupos — em grupos, responde apenas quando mencionado (@botname).
+ *
+ * Cada conversa (chatId:userId) tem seu próprio Agent, que gerencia o histórico internamente.
  */
 
 const TelegramBot = require("node-telegram-bot-api");
@@ -14,35 +16,43 @@ const Agent = require("../core/Agent");
 
 const log = createLogger("telegram");
 
+function buildSystemPrompt() {
+  const soulPath = process.env.SOUL_FILE || path.join(__dirname, "../../SOUL.md");
+  const soulMd = fs.readFileSync(path.resolve(soulPath), "utf-8");
+  const minimalContext = WikiManager.getMinimalContext();
+  return minimalContext + "\n" + soulMd;
+}
+
+function buildAgent(systemPrompt) {
+  return new Agent({
+    systemPrompt,
+    tools: ToolRegistry.getDefinitions(),
+    toolExecutor: (name, args) => ToolRegistry.execute(name, args),
+  });
+}
+
 async function runTelegram() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    throw new Error("TELEGRAM_BOT_TOKEN não configurado no .env");
-  }
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN não configurado no .env");
 
   const bot = new TelegramBot(token, { polling: true });
 
-  // Histórico separado por usuário dentro de cada chat: "chatId:userId"
-  const conversations = new Map();
+  // Um Agent por conversa (chatId:userId) — cada um gerencia seu próprio histórico
+  const agents = new Map();
+  const systemPrompt = buildSystemPrompt();
 
-  // 1. Carregamento do Contexto (Wiki + Persona)
-  const soulPath = process.env.SOUL_FILE || path.join(__dirname, "../../SOUL.md");
-  const soulMd = fs.readFileSync(path.resolve(soulPath), "utf-8");
-  const memoryWiki = WikiManager.loadMemoryWiki();
-  const systemPrompt = memoryWiki + "\n" + soulMd;
-
-  // Busca o @username do próprio bot para detectar menções em grupos
   const me = await bot.getMe();
   const botUsername = me.username;
 
   log.info("bot iniciado", {
     username: botUsername,
     model: process.env.MODEL || "llama3.2",
-    wikiSize: memoryWiki.length,
+    systemPromptSize: systemPrompt.length,
     toolsLoaded: ToolRegistry.getDefinitions().length,
   });
 
-  // 2. Handlers de Comandos
+  // --- Comandos ---
+
   bot.onText(/\/start/, (msg) => {
     const name = msg.from.first_name || "pessoal";
     const isGroup = ["group", "supergroup"].includes(msg.chat.type);
@@ -60,7 +70,14 @@ async function runTelegram() {
     );
   });
 
-  // 3. Listener Principal de Mensagens
+  bot.onText(/\/reset/, (msg) => {
+    const key = `${msg.chat.id}:${msg.from.id}`;
+    if (agents.has(key)) agents.get(key).resetHistory();
+    bot.sendMessage(msg.chat.id, "Histórico limpo. Começando uma nova conversa.");
+  });
+
+  // --- Listener principal ---
+
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -69,50 +86,38 @@ async function runTelegram() {
 
     if (!text || text.startsWith("/")) return;
 
-    // Em grupos: só responde quando o bot é mencionado diretamente
+    // Em grupos: só responde quando mencionado diretamente
     if (isGroup) {
       const mention = `@${botUsername}`;
       if (!text.includes(mention)) return;
-      // Remove a menção do texto antes de enviar ao agente
       text = text.replace(new RegExp(mention, "g"), "").trim();
       if (!text) return;
     }
 
-    // Chave de histórico por usuário dentro do chat
-    const historyKey = `${chatId}:${userId}`;
-    if (!conversations.has(historyKey)) {
-      conversations.set(historyKey, []);
+    // Recupera ou cria o Agent desta conversa
+    const key = `${chatId}:${userId}`;
+    if (!agents.has(key)) {
+      agents.set(key, buildAgent(systemPrompt));
+      log.info("nova conversa iniciada", { key });
     }
-    const history = conversations.get(historyKey);
+    const agent = agents.get(key);
 
-    // Injeta o nome do usuário no conteúdo para o agente poder citá-lo
+    // Inclui o nome do remetente para o agente poder citá-lo nas respostas
     const senderName = msg.from.first_name || msg.from.username || `Usuário ${userId}`;
-    history.push({ role: "user", content: `[${senderName}]: ${text}` });
-
-    if (history.length > 40) history.splice(0, 2);
+    const input = `[${senderName}]: ${text}`;
 
     try {
       await bot.sendChatAction(chatId, "typing");
 
-      const agent = new Agent({
-        systemPrompt,
-        tools: ToolRegistry.getDefinitions(),
-        toolExecutor: (name, args) => ToolRegistry.execute(name, args),
-      });
+      const reply = await agent.chat(input);
 
-      const reply = await agent.chat(history);
-
-      // Em grupos, cita o usuário no início da resposta
-      const finalReply = isGroup
-        ? `*${senderName}*, ${reply}`
-        : reply;
-
+      const finalReply = isGroup ? `*${senderName}*, ${reply}` : reply;
       await bot.sendMessage(chatId, finalReply, { parse_mode: "Markdown" });
     } catch (err) {
-      log.error("erro ao processar chat", { chatId, userId, error: err.message });
+      log.error("erro ao processar mensagem", { chatId, userId, error: err.message });
       await bot.sendMessage(
         chatId,
-        "⚠️ Tive um problema interno ao processar sua mensagem. Por favor, tente novamente em instantes."
+        "Tive um problema interno ao processar sua mensagem. Por favor, tente novamente."
       );
     }
   });
